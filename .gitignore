@@ -1,0 +1,11 @@
+out_img_align_celeba_test/
+out_rgb_img_kitti/
+out_rgb_img_kitti_grad/
+out_rgb_img_nyu/
+out_test_celeba/
+pretrained/
+rgb_img_kitti/
+rgb_img_kitti_grad/
+rgb_img_nyu/
+test_celeba/
+__pycache__/

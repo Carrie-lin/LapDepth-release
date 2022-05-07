@@ -10,6 +10,28 @@ import matplotlib.pyplot as plt
 import argparse
 import os
 import imageio
+from utils_lgy import *
+
+
+def scale_shift_depth(depth_arr,scale_factor=297,shift_factor=0.824):
+    new_depth_arr=depth_arr * scale_factor + shift_factor
+    return new_depth_arr
+
+def my_visualize_depth(depth_arr):
+    point_cloud=[]
+    img_width=depth_arr.shape[0]
+    img_height=depth_arr.shape[1]
+    cx=img_width//2
+    cy=img_height//2
+    i_scale=0.3/cx
+    j_scale=0.3/cy
+    z_scale=0.6/(depth_arr.max()-depth_arr.min())
+
+    for i in range(img_width):
+        for j in range(img_height):
+            point_cloud.append([(i-cx)*i_scale,(j-cy)*j_scale,z_scale*depth_arr[i,j]])
+    return np.array(point_cloud)
+
 
 parser = argparse.ArgumentParser(description='Laplacian Depth Residual Network training on KITTI',formatter_class=argparse.ArgumentDefaultsHelpFormatter)
 
@@ -36,7 +58,6 @@ parser.add_argument('--lv6', action='store_true', help='use lv6 Laplacian decode
 parser.add_argument('--cuda', action='store_true')
 parser.add_argument('--gpu_num', type=str, default = "0,1,2,3", help='force available gpu index')
 parser.add_argument('--rank', type=int,   help='node rank for distributed training', default=0)
-
 
 args = parser.parse_args()
 
@@ -87,14 +108,20 @@ print("=> process..")
 normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 
 for i, img_file in enumerate(img_list):
+
     img = Image.open(img_file)
+    sss=transforms.ToTensor()
     img = np.asarray(img, dtype=np.float32)/255.0
     if img.ndim == 2:
         img = np.expand_dims(img,2)
         img = np.repeat(img,3,2)
     img = img.transpose((2, 0, 1))
+    
     img = torch.from_numpy(img).float()
+
+    ## start here 
     img = normalize(img)
+
     if args.cuda and torch.cuda.is_available():
         img = img.cuda()
     
@@ -114,10 +141,6 @@ for i, img_file in enumerate(img_list):
         new_w = int((new_w//16)*16)
         img = F.interpolate(img, (new_h, new_w), mode='bilinear')
 
-    # depth prediction
-    #with torch.no_grad():
-    #    _, out = Model(img)
-
     img_flip = torch.flip(img,[3])
     with torch.no_grad():
         _, out = Model(img)
@@ -134,11 +157,19 @@ for i, img_file in enumerate(img_list):
         out = out*256.0
     elif args.pretrained == 'NYU':
         out = out*1000.0
+    
+    depth_cpu_out = out.cpu().detach().numpy()
+    new_depth_arr = scale_shift_depth(depth_cpu_out,scale_factor=0.0001285,shift_factor=0.8734)
+
+    np.savetxt(result_filelist[i].replace('.jpg','.txt'),new_depth_arr)
+    #depth_pc=my_visualize_depth(depth_cpu_out)
+    #draw_colored_points_to_obj(result_filelist[i].replace('.jpg','.obj'),depth_pc,np.zeros((depth_pc.shape[0],1)).reshape(-1))
+    
     out = out.cpu().detach().numpy().astype(np.uint16)
     out = (out/out.max())*255.0
     result_filename = result_filelist[i]
     plt.imsave(result_filename ,np.log10(out), cmap='plasma_r')
-    if (i+1)%10 == 0:
+    if (i+1)%100 == 0:
         print("=>",i+1,"th image is processed..")
 
 print("=> Done.")
